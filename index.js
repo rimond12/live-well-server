@@ -2,19 +2,17 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-const admin = require("firebase-admin");
 
 dotenv.config();
 
-// const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString("utf8");
-// console.log("Decoded service account JSON:", decoded);
-// const serviceAccount = JSON.parse(decoded);
-// serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+const stripe = require("stripe")(process.env.PAYMENT_GATEWAY_KEY);
 
-// admin.initializeApp({
-//   credential: admin.credential.cert(serviceAccount),
-// });
+const admin = require("firebase-admin");
 
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+  "utf8"
+);
+const serviceAccount = JSON.parse(decoded);
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -23,6 +21,7 @@ app.use(express.json());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@programmingproject.e8odsjn.mongodb.net/?retryWrites=true&w=majority&appName=ProgrammingProject`;
 
+// Create MongoClient with options
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -30,33 +29,6 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
-
-// Middleware to verify Firebase token
-// const verifyFireBaseToken = async (req, res, next) => {
-//   const authHeader = req.headers?.authorization;
-
-//   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-//     return res.status(401).send({ message: "unauthorized access" });
-//   }
-
-//   const token = authHeader.split(" ")[1];
-
-//   try {
-//     const decodedToken = await admin.auth().verifyIdToken(token);
-//     req.decoded = decodedToken;
-//     next();
-//   } catch (error) {
-//     return res.status(401).send({ message: "unauthorized access" });
-//   }
-// };
-
-// Middleware to verify that the email in params matches the decoded token email
-// const verifyTokenEmail = (req, res, next) => {
-//   if (req.params.email !== req.decoded.email) {
-//     return res.status(403).send({ message: "forbidden access" });
-//   }
-//   next();
-// };
 
 async function run() {
   try {
@@ -71,7 +43,7 @@ async function run() {
     const paymentsCollection = db.collection("payments");
     const announcementsCollection = db.collection("announcements");
 
-    // --- Apartments with pagination and rent filtering ---
+    // GET apartments with pagination and rent filtering
     app.get("/apartments", async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
@@ -98,11 +70,13 @@ async function run() {
       }
     });
 
-    // --- Get agreement by user email ---
+    // GET agreement by user email
     app.get("/agreements/:email", async (req, res) => {
       try {
         const email = req.params.email;
-        const agreement = await agreementsCollection.findOne({ userEmail: email });
+        const agreement = await agreementsCollection.findOne({
+          userEmail: email,
+        });
         res.send(agreement);
       } catch (error) {
         console.error(error);
@@ -110,7 +84,7 @@ async function run() {
       }
     });
 
-    // --- POST new agreement ---
+    // POST new agreement
     app.post("/agreements", async (req, res) => {
       try {
         const agreement = req.body;
@@ -120,7 +94,9 @@ async function run() {
         });
 
         if (existing) {
-          return res.status(400).send({ message: "User already has an agreement." });
+          return res
+            .status(400)
+            .send({ message: "User already has an agreement." });
         }
 
         agreement.status = "pending";
@@ -132,25 +108,34 @@ async function run() {
       }
     });
 
-    // --- POST payment ---
+    // POST payment
     app.post("/payments", async (req, res) => {
       try {
         const paymentData = req.body;
         const result = await paymentsCollection.insertOne(paymentData);
-        res.status(201).send({ success: true, message: "Payment recorded", data: result });
+        res
+          .status(201)
+          .send({ success: true, message: "Payment recorded", data: result });
       } catch (error) {
         console.error(error);
         res.status(500).send({ success: false, message: "Payment failed" });
       }
     });
 
-    // --- GET payments by user email ---
+    // GET payments by user email (from query param)
     app.get("/payments", async (req, res) => {
       try {
         const userEmail = req.query.email;
-        if (!userEmail) return res.status(400).send({ message: "Email is required" });
+        if (!userEmail)
+          return res.status(400).send({ message: "Email is required" });
 
-        const payments = await paymentsCollection.find({ userEmail }).toArray();
+        console.log("Requested payment for:", userEmail);
+
+        const payments = await paymentsCollection
+          .find({ memberEmail: userEmail }) // <-- ✅ Correct field name
+          .toArray();
+
+        console.log("Found payments:", payments.length);
         res.send(payments);
       } catch (error) {
         console.error(error);
@@ -158,13 +143,15 @@ async function run() {
       }
     });
 
-    // --- POST validate coupon ---
+    // POST validate coupon
     app.post("/validate-coupon", async (req, res) => {
       try {
         const { couponCode } = req.body;
 
         if (!couponCode || typeof couponCode !== "string") {
-          return res.status(400).send({ valid: false, message: "Coupon code is required" });
+          return res
+            .status(400)
+            .send({ valid: false, message: "Coupon code is required" });
         }
 
         const coupon = await couponsCollection.findOne({
@@ -173,21 +160,25 @@ async function run() {
         });
 
         if (!coupon) {
-          return res.status(404).send({ valid: false, message: "Invalid or inactive coupon" });
+          return res
+            .status(404)
+            .send({ valid: false, message: "Invalid or inactive coupon" });
         }
 
         res.send({
           valid: true,
-          discountPercentage: coupon.discount,
+          discountPercentage: coupon.discount, // assuming your field is 'discount'
           description: coupon.description || "",
         });
       } catch (error) {
         console.error(error);
-        res.status(500).send({ valid: false, message: "Coupon validation failed" });
+        res
+          .status(500)
+          .send({ valid: false, message: "Coupon validation failed" });
       }
     });
 
-    // --- GET all agreements (admin) ---
+    // GET all agreements (admin)
     app.get("/agreements", async (req, res) => {
       try {
         const agreements = await agreementsCollection.find().toArray();
@@ -198,12 +189,21 @@ async function run() {
       }
     });
 
-    // --- PATCH accept agreement and update user role ---
+    app.get("/agreements/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await agreementCollection.findOne({ userEmail: email });
+      res.send(result);
+    });
+
+    // PATCH accept agreement and update user role
     app.patch("/agreements/:id/accept", async (req, res) => {
       const id = req.params.id;
       try {
-        const agreement = await agreementsCollection.findOne({ _id: new ObjectId(id) });
-        if (!agreement) return res.status(404).send({ message: "Agreement not found" });
+        const agreement = await agreementsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!agreement)
+          return res.status(404).send({ message: "Agreement not found" });
 
         await agreementsCollection.updateOne(
           { _id: new ObjectId(id) },
@@ -222,12 +222,15 @@ async function run() {
       }
     });
 
-    // --- PATCH reject agreement (update status only) ---
+    // PATCH reject agreement (update status only)
     app.patch("/agreements/:id/reject", async (req, res) => {
       const id = req.params.id;
       try {
-        const agreement = await agreementsCollection.findOne({ _id: new ObjectId(id) });
-        if (!agreement) return res.status(404).send({ message: "Agreement not found" });
+        const agreement = await agreementsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!agreement)
+          return res.status(404).send({ message: "Agreement not found" });
 
         await agreementsCollection.updateOne(
           { _id: new ObjectId(id) },
@@ -241,12 +244,14 @@ async function run() {
       }
     });
 
-    // --- POST announcement ---
+    // POST announcement
     app.post("/announcements", async (req, res) => {
       try {
         const { title, description } = req.body;
         if (!title || !description) {
-          return res.status(400).send({ message: "Title and description required" });
+          return res
+            .status(400)
+            .send({ message: "Title and description required" });
         }
         const announcement = {
           title,
@@ -255,7 +260,10 @@ async function run() {
         };
         const result = await announcementsCollection.insertOne(announcement);
         if (result.insertedId) {
-          res.status(201).send({ message: "Announcement posted", insertedId: result.insertedId });
+          res.status(201).send({
+            message: "Announcement posted",
+            insertedId: result.insertedId,
+          });
         } else {
           res.status(500).send({ message: "Failed to post announcement" });
         }
@@ -265,17 +273,19 @@ async function run() {
       }
     });
 
-    // --- GET announcements ---
     app.get("/announcements", async (req, res) => {
       try {
-        const announcements = await announcementsCollection.find().sort({ date: -1 }).toArray();
+        const announcements = await announcementsCollection
+          .find()
+          .sort({ date: -1 })
+          .toArray();
         res.send(announcements);
       } catch (err) {
         res.status(500).send({ message: "Failed to fetch announcements" });
       }
     });
 
-    // --- GET all coupons ---
+    // GET all coupons
     app.get("/coupons", async (req, res) => {
       try {
         const coupons = await couponsCollection.find().toArray();
@@ -286,28 +296,34 @@ async function run() {
       }
     });
 
-    // --- POST new coupon ---
+    // POST new coupon
     app.post("/coupons", async (req, res) => {
       const { code, discountPercentage, active } = req.body;
 
-      if (!code || typeof discountPercentage !== "number" || discountPercentage <= 0) {
+      if (
+        !code ||
+        typeof discountPercentage !== "number" ||
+        discountPercentage <= 0
+      ) {
         return res.status(400).json({ message: "Invalid coupon data" });
       }
 
       const result = await couponsCollection.insertOne({
         code,
-        discount: discountPercentage,
-        active: active !== false,
+        discount: discountPercentage, // Store as 'discount'
+        active: active !== false, // default true
       });
 
       res.status(201).json(result);
     });
 
-    // --- DELETE coupon by ID ---
+    // DELETE coupon by ID
     app.delete("/coupons/:id", async (req, res) => {
       try {
         const id = req.params.id;
-        const result = await couponsCollection.deleteOne({ _id: new ObjectId(id) });
+        const result = await couponsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
         res.send(result);
       } catch (error) {
         console.error(error);
@@ -315,11 +331,10 @@ async function run() {
       }
     });
 
-    // --- Middleware to verify admin role (example) ---
+    // Middleware to verify admin role (example)
     const verifyAdmin = async (req, res, next) => {
-      const userEmail = req.decoded?.email; // from token middleware
-
-      if (!userEmail) return res.status(401).json({ message: "Unauthorized" });
+      // assume you have user info in req.user (from auth middleware)
+      const userEmail = req.user.email;
 
       const user = await usersCollection.findOne({ email: userEmail });
       if (user?.role !== "admin") {
@@ -328,8 +343,8 @@ async function run() {
       next();
     };
 
-    // --- PATCH /users/:id/role to update user role (admin only) ---
-    app.patch("/users/:id/role", async (req, res) => {
+    // PATCH /users/:id/role to update user role (admin only)
+    app.patch("/users/:id/role", verifyAdmin, async (req, res) => {
       const userId = req.params.id;
       const { role } = req.body;
 
@@ -338,7 +353,10 @@ async function run() {
       }
 
       try {
-        const result = await usersCollection.updateOne({ _id: new ObjectId(userId) }, { $set: { role } });
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { role } }
+        );
 
         if (result.matchedCount === 0) {
           return res.status(404).json({ message: "User not found" });
@@ -351,10 +369,12 @@ async function run() {
       }
     });
 
-    // --- GET all users (admin dashboard to manage members) ---
+    // GET all users with role 'member' or 'user' (admin dashboard manage members)
     app.get("/users", async (req, res) => {
       try {
-        const users = await usersCollection.find({ role: { $in: ["user", "member"] } }).toArray();
+        const users = await usersCollection
+          .find({ role: { $in: ["user", "member"] } })
+          .toArray();
         res.send(users);
       } catch (error) {
         console.error(error);
@@ -362,11 +382,39 @@ async function run() {
       }
     });
 
-    // --- DELETE user by ID ---
-    app.delete("/users/:id",  async (req, res) => {
+    // PATCH update user role by admin (already diso, kintu without verifyAdmin middleware porer step e add korbo)
+    app.patch("/users/:id/role", async (req, res) => {
+      const userId = req.params.id;
+      const { role } = req.body;
+
+      if (!["user", "member", "admin"].includes(role)) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
+
+      try {
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { role } }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        res.json({ success: true, message: "Role updated successfully" });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    // DELETE user by ID (remove member permission)
+    app.delete("/users/:id", async (req, res) => {
       try {
         const userId = req.params.id;
-        const result = await usersCollection.deleteOne({ _id: new ObjectId(userId) });
+        const result = await usersCollection.deleteOne({
+          _id: new ObjectId(userId),
+        });
         if (result.deletedCount === 0) {
           return res.status(404).json({ message: "User not found" });
         }
@@ -377,13 +425,129 @@ async function run() {
       }
     });
 
-    // Ping test to confirm DB connection
+    // 1. Create Payment Intent
+app.post("/create-payment-intent", async (req, res) => {
+  try {
+    const { amount } = req.body;
+    console.log("Received amount:", amount); // debug
+
+    if (!amount || typeof amount !== "number" || amount <= 0) {
+      return res.status(400).json({ error: "Invalid amount" });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100), // amount in cents
+      currency: "usd",
+      payment_method_types: ["card"],
+    });
+
+    res.json({ clientSecret: paymentIntent.client_secret });
+  } catch (error) {
+    console.error("Error creating payment intent:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+
+
+
+// 2. Validate Coupon
+// assuming you already have express app and body-parser or express.json() middleware set up
+
+// POST to verify coupon
+app.post("/verify-coupon", async (req, res) => {
+  const { code, rent } = req.body;
+  if (!code || typeof rent !== "number") {
+    return res.status(400).json({ valid: false, message: "Code and rent required" });
+  }
+
+  try {
+    const coupon = await couponsCollection.findOne({
+      code: code.toUpperCase(),
+      active: true,
+    });
+
+    if (!coupon) {
+      return res.json({ valid: false, message: "Invalid or expired coupon" });
+    }
+
+    // 🔄 Use 'discount' instead of 'discountPercentage'
+    const discountAmount = (rent * coupon.discount) / 100;
+    const discountedAmount = rent - discountAmount;
+
+    return res.json({
+      valid: true,
+      discountPercentage: coupon.discount,
+      discountedAmount,
+    });
+  } catch (err) {
+    console.error("verify-coupon err:", err);
+    return res.status(500).json({ valid: false, message: "Server error" });
+  }
+});
+
+
+
+
+
+
+
+
+
+    // 3. Save Payment
+app.post("/payments", async (req, res) => {
+  try {
+    const payment = req.body;
+
+    // Check if payment already exists for same agreementId and month
+    const existingPayment = await paymentsCollection.findOne({
+      agreementId: payment.agreementId,
+      month: payment.month,
+      status: "paid",
+    });
+
+    if (existingPayment) {
+      return res.status(400).send({ success: false, message: "Payment already done for this month." });
+    }
+
+    const result = await paymentsCollection.insertOne(payment);
+    res.send({ success: true, message: "Payment recorded", insertedId: result.insertedId });
+  } catch (error) {
+    console.error("Error recording payment:", error);
+    res.status(500).send({ success: false, message: "Payment recording failed" });
+  }
+});
+
+
+// 4. Get User Payments
+app.get("/payments", async (req, res) => {
+  try {
+    const userEmail = req.query.email;
+
+    if (!userEmail)
+      return res.status(400).send({ message: "⚠️ Email is required" });
+
+    const payments = await paymentsCollection
+      .find({ memberEmail: userEmail })
+      .sort({ paymentDate: -1 }) // latest first
+      .toArray();
+
+    res.send(payments);
+  } catch (error) {
+    console.error("❌ Failed to fetch payments:", error);
+    res.status(500).send({ message: "Failed to fetch payments" });
+  }
+});
+
+    // Ping test
     await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
   } catch (err) {
     console.error(err);
   }
-  // Do not close client to keep server running
+  // client.close(); // don't close, keep server running
 }
 
 run().catch(console.dir);
