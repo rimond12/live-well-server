@@ -123,25 +123,25 @@ async function run() {
     });
 
     // GET payments by user email (from query param)
-    app.get("/payments", async (req, res) => {
-      try {
-        const userEmail = req.query.email;
-        if (!userEmail)
-          return res.status(400).send({ message: "Email is required" });
+    // app.get("/payments", async (req, res) => {
+    //   try {
+    //     const userEmail = req.query.email;
+    //     if (!userEmail)
+    //       return res.status(400).send({ message: "Email is required" });
 
-        console.log("Requested payment for:", userEmail);
+    //     console.log("Requested payment for:", userEmail);
 
-        const payments = await paymentsCollection
-          .find({ memberEmail: userEmail }) // <-- ✅ Correct field name
-          .toArray();
+    //     const payments = await paymentsCollection
+    //       .find({ memberEmail: userEmail }) // <-- ✅ Correct field name
+    //       .toArray();
 
-        console.log("Found payments:", payments.length);
-        res.send(payments);
-      } catch (error) {
-        console.error(error);
-        res.status(500).send({ message: "Failed to fetch payments" });
-      }
-    });
+    //     console.log("Found payments:", payments.length);
+    //     res.send(payments);
+    //   } catch (error) {
+    //     console.error(error);
+    //     res.status(500).send({ message: "Failed to fetch payments" });
+    //   }
+    // });
 
     // POST validate coupon
     app.post("/validate-coupon", async (req, res) => {
@@ -528,8 +528,8 @@ app.get("/payments", async (req, res) => {
       return res.status(400).send({ message: "⚠️ Email is required" });
 
     const payments = await paymentsCollection
-      .find({ memberEmail: userEmail })
-      .sort({ paymentDate: -1 }) // latest first
+      .find({ email: userEmail }) // অথবা .find({ memberEmail: userEmail }) যদি ফিল্ড নাম memberEmail হয়
+      .sort({ date: -1 })
       .toArray();
 
     res.send(payments);
@@ -538,6 +538,7 @@ app.get("/payments", async (req, res) => {
     res.status(500).send({ message: "Failed to fetch payments" });
   }
 });
+
 
     // Ping test
     await client.db("admin").command({ ping: 1 });
