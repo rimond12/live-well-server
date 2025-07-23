@@ -2,22 +2,25 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-
+const admin = require("firebase-admin");
 dotenv.config();
 
 const stripe = require("stripe")(process.env.PAYMENT_GATEWAY_KEY);
 
-const admin = require("firebase-admin");
-
-const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
-  "utf8"
-);
-const serviceAccount = JSON.parse(decoded);
+// const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+//   "utf8"
+// );
+// const serviceAccount = JSON.parse(decoded);
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+const serviceAccount = require("./firebase-admin-key.json");
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@programmingproject.e8odsjn.mongodb.net/?retryWrites=true&w=majority&appName=ProgrammingProject`;
 
@@ -42,6 +45,38 @@ async function run() {
     const couponsCollection = db.collection("coupons");
     const paymentsCollection = db.collection("payments");
     const announcementsCollection = db.collection("announcements");
+
+    // custom middleware
+
+    verifyFBToken = async (req, res, next) => {
+      console.log("header in middlware", req.headers);
+
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+      const token = authHeader.split(" ")[1];
+      if (!token) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+      // verify the token
+
+      next();
+    };
+
+    app.post("/users", async (req, res) => {
+      const email = req.body.email;
+
+      const userExist = await usersCollection.findOne({ email });
+      if (userExist) {
+        return res
+          .status(200)
+          .send({ message: "user already exist", inserted: false });
+      }
+      const user = req.body;
+      const result = await usersCollection.insertOne(user);
+      res.send(result);
+    });
 
     // GET apartments with pagination and rent filtering
     app.get("/apartments", async (req, res) => {
@@ -426,119 +461,120 @@ async function run() {
     });
 
     // 1. Create Payment Intent
-app.post("/create-payment-intent", async (req, res) => {
-  try {
-    const { amount } = req.body;
-    console.log("Received amount:", amount); // debug
+    app.post("/create-payment-intent", async (req, res) => {
+      try {
+        const { amount } = req.body;
+        console.log("Received amount:", amount); // debug
 
-    if (!amount || typeof amount !== "number" || amount <= 0) {
-      return res.status(400).json({ error: "Invalid amount" });
-    }
+        if (!amount || typeof amount !== "number" || amount <= 0) {
+          return res.status(400).json({ error: "Invalid amount" });
+        }
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // amount in cents
-      currency: "usd",
-      payment_method_types: ["card"],
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: Math.round(amount * 100), // amount in cents
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+
+        res.json({ clientSecret: paymentIntent.client_secret });
+      } catch (error) {
+        console.error("Error creating payment intent:", error);
+        res.status(500).json({ error: "Internal Server Error" });
+      }
     });
 
-    res.json({ clientSecret: paymentIntent.client_secret });
-  } catch (error) {
-    console.error("Error creating payment intent:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
+    // 2. Validate Coupon
+    // assuming you already have express app and body-parser or express.json() middleware set up
 
+    // POST to verify coupon
+    app.post("/verify-coupon", async (req, res) => {
+      const { code, rent } = req.body;
+      if (!code || typeof rent !== "number") {
+        return res
+          .status(400)
+          .json({ valid: false, message: "Code and rent required" });
+      }
 
+      try {
+        const coupon = await couponsCollection.findOne({
+          code: code.toUpperCase(),
+          active: true,
+        });
 
+        if (!coupon) {
+          return res.json({
+            valid: false,
+            message: "Invalid or expired coupon",
+          });
+        }
 
-// 2. Validate Coupon
-// assuming you already have express app and body-parser or express.json() middleware set up
+        // 🔄 Use 'discount' instead of 'discountPercentage'
+        const discountAmount = (rent * coupon.discount) / 100;
+        const discountedAmount = rent - discountAmount;
 
-// POST to verify coupon
-app.post("/verify-coupon", async (req, res) => {
-  const { code, rent } = req.body;
-  if (!code || typeof rent !== "number") {
-    return res.status(400).json({ valid: false, message: "Code and rent required" });
-  }
-
-  try {
-    const coupon = await couponsCollection.findOne({
-      code: code.toUpperCase(),
-      active: true,
+        return res.json({
+          valid: true,
+          discountPercentage: coupon.discount,
+          discountedAmount,
+        });
+      } catch (err) {
+        console.error("verify-coupon err:", err);
+        return res.status(500).json({ valid: false, message: "Server error" });
+      }
     });
-
-    if (!coupon) {
-      return res.json({ valid: false, message: "Invalid or expired coupon" });
-    }
-
-    // 🔄 Use 'discount' instead of 'discountPercentage'
-    const discountAmount = (rent * coupon.discount) / 100;
-    const discountedAmount = rent - discountAmount;
-
-    return res.json({
-      valid: true,
-      discountPercentage: coupon.discount,
-      discountedAmount,
-    });
-  } catch (err) {
-    console.error("verify-coupon err:", err);
-    return res.status(500).json({ valid: false, message: "Server error" });
-  }
-});
-
-
-
-
-
-
-
-
 
     // 3. Save Payment
-app.post("/payments", async (req, res) => {
-  try {
-    const payment = req.body;
+    app.post("/payments", async (req, res) => {
+      try {
+        const payment = req.body;
 
-    // Check if payment already exists for same agreementId and month
-    const existingPayment = await paymentsCollection.findOne({
-      agreementId: payment.agreementId,
-      month: payment.month,
-      status: "paid",
+        // Check if payment already exists for same agreementId and month
+        const existingPayment = await paymentsCollection.findOne({
+          agreementId: payment.agreementId,
+          month: payment.month,
+          status: "paid",
+        });
+
+        if (existingPayment) {
+          return res.status(400).send({
+            success: false,
+            message: "Payment already done for this month.",
+          });
+        }
+
+        const result = await paymentsCollection.insertOne(payment);
+        res.send({
+          success: true,
+          message: "Payment recorded",
+          insertedId: result.insertedId,
+        });
+      } catch (error) {
+        console.error("Error recording payment:", error);
+        res
+          .status(500)
+          .send({ success: false, message: "Payment recording failed" });
+      }
     });
 
-    if (existingPayment) {
-      return res.status(400).send({ success: false, message: "Payment already done for this month." });
-    }
+    // 4. Get User Payments
+    app.get("/payments", verifyFBToken, async (req, res) => {
+      try {
+        const userEmail = req.query.email;
 
-    const result = await paymentsCollection.insertOne(payment);
-    res.send({ success: true, message: "Payment recorded", insertedId: result.insertedId });
-  } catch (error) {
-    console.error("Error recording payment:", error);
-    res.status(500).send({ success: false, message: "Payment recording failed" });
-  }
-});
+        if (!userEmail)
+          return res.status(400).send({ message: "⚠️ Email is required" });
 
+        const payments = await paymentsCollection
+          .find({ email: userEmail }) // অথবা .find({ memberEmail: userEmail }) যদি ফিল্ড নাম memberEmail হয়
+          .sort({ date: -1 })
+          .toArray();
 
-// 4. Get User Payments
-app.get("/payments", async (req, res) => {
-  try {
-    const userEmail = req.query.email;
-
-    if (!userEmail)
-      return res.status(400).send({ message: "⚠️ Email is required" });
-
-    const payments = await paymentsCollection
-      .find({ email: userEmail }) // অথবা .find({ memberEmail: userEmail }) যদি ফিল্ড নাম memberEmail হয়
-      .sort({ date: -1 })
-      .toArray();
-
-    res.send(payments);
-  } catch (error) {
-    console.error("❌ Failed to fetch payments:", error);
-    res.status(500).send({ message: "Failed to fetch payments" });
-  }
-});
-
+        res.send(payments);
+      } catch (error) {
+        console.error("❌ Failed to fetch payments:", error);
+        res.status(500).send({ message: "Failed to fetch payments" });
+      }
+    });
 
     // Ping test
     await client.db("admin").command({ ping: 1 });
