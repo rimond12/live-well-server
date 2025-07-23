@@ -60,8 +60,13 @@ async function run() {
         return res.status(401).send({ message: "unauthorized access" });
       }
       // verify the token
-
-      next();
+      try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+        next();
+      } catch (error) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
     };
 
     app.post("/users", async (req, res) => {
@@ -214,70 +219,70 @@ async function run() {
     });
 
     // GET all agreements (admin)
-    app.get("/agreements", async (req, res) => {
-      try {
-        const agreements = await agreementsCollection.find().toArray();
-        res.send(agreements);
-      } catch (error) {
-        console.error(error);
-        res.status(500).send({ error: "Failed to fetch agreements" });
-      }
-    });
+    // app.get("/agreements", async (req, res) => {
+    //   try {
+    //     const agreements = await agreementsCollection.find().toArray();
+    //     res.send(agreements);
+    //   } catch (error) {
+    //     console.error(error);
+    //     res.status(500).send({ error: "Failed to fetch agreements" });
+    //   }
+    // });
 
-    app.get("/agreements/user/:email", async (req, res) => {
-      const email = req.params.email;
-      const result = await agreementCollection.findOne({ userEmail: email });
-      res.send(result);
-    });
+    // app.get("/agreements/user/:email", async (req, res) => {
+    //   const email = req.params.email;
+    //   const result = await agreementCollection.findOne({ userEmail: email });
+    //   res.send(result);
+    // });
 
-    // PATCH accept agreement and update user role
-    app.patch("/agreements/:id/accept", async (req, res) => {
-      const id = req.params.id;
-      try {
-        const agreement = await agreementsCollection.findOne({
-          _id: new ObjectId(id),
-        });
-        if (!agreement)
-          return res.status(404).send({ message: "Agreement not found" });
+    // // PATCH accept agreement and update user role
+    // app.patch("/agreements/:id/accept", async (req, res) => {
+    //   const id = req.params.id;
+    //   try {
+    //     const agreement = await agreementsCollection.findOne({
+    //       _id: new ObjectId(id),
+    //     });
+    //     if (!agreement)
+    //       return res.status(404).send({ message: "Agreement not found" });
 
-        await agreementsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { status: "checked" } }
-        );
+    //     await agreementsCollection.updateOne(
+    //       { _id: new ObjectId(id) },
+    //       { $set: { status: "checked" } }
+    //     );
 
-        await usersCollection.updateOne(
-          { email: agreement.userEmail },
-          { $set: { role: "member" } }
-        );
+    //     await usersCollection.updateOne(
+    //       { email: agreement.userEmail },
+    //       { $set: { role: "member" } }
+    //     );
 
-        res.send({ message: "Agreement accepted and user role updated" });
-      } catch (error) {
-        console.error(error);
-        res.status(500).send({ message: "Failed to accept agreement", error });
-      }
-    });
+    //     res.send({ message: "Agreement accepted and user role updated" });
+    //   } catch (error) {
+    //     console.error(error);
+    //     res.status(500).send({ message: "Failed to accept agreement", error });
+    //   }
+    // });
 
-    // PATCH reject agreement (update status only)
-    app.patch("/agreements/:id/reject", async (req, res) => {
-      const id = req.params.id;
-      try {
-        const agreement = await agreementsCollection.findOne({
-          _id: new ObjectId(id),
-        });
-        if (!agreement)
-          return res.status(404).send({ message: "Agreement not found" });
+    // // PATCH reject agreement (update status only)
+    // app.patch("/agreements/:id/reject", async (req, res) => {
+    //   const id = req.params.id;
+    //   try {
+    //     const agreement = await agreementsCollection.findOne({
+    //       _id: new ObjectId(id),
+    //     });
+    //     if (!agreement)
+    //       return res.status(404).send({ message: "Agreement not found" });
 
-        await agreementsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { status: "checked" } }
-        );
+    //     await agreementsCollection.updateOne(
+    //       { _id: new ObjectId(id) },
+    //       { $set: { status: "checked" } }
+    //     );
 
-        res.send({ message: "Agreement rejected" });
-      } catch (error) {
-        console.error(error);
-        res.status(500).send({ message: "Failed to reject agreement", error });
-      }
-    });
+    //     res.send({ message: "Agreement rejected" });
+    //   } catch (error) {
+    //     console.error(error);
+    //     res.status(500).send({ message: "Failed to reject agreement", error });
+    //   }
+    // });
 
     // POST announcement
     app.post("/announcements", async (req, res) => {
@@ -367,98 +372,160 @@ async function run() {
     });
 
     // Middleware to verify admin role (example)
-    const verifyAdmin = async (req, res, next) => {
-      // assume you have user info in req.user (from auth middleware)
-      const userEmail = req.user.email;
+    // const verifyAdmin = async (req, res, next) => {
+    //   // assume you have user info in req.user (from auth middleware)
+    //   const userEmail = req.user.email;
 
-      const user = await usersCollection.findOne({ email: userEmail });
-      if (user?.role !== "admin") {
-        return res.status(403).json({ message: "Forbidden: Admins only" });
-      }
-      next();
-    };
+    //   const user = await usersCollection.findOne({ email: userEmail });
+    //   if (user?.role !== "admin") {
+    //     return res.status(403).json({ message: "Forbidden: Admins only" });
+    //   }
+    //   next();
+    // };
 
     // PATCH /users/:id/role to update user role (admin only)
-    app.patch("/users/:id/role", verifyAdmin, async (req, res) => {
-      const userId = req.params.id;
-      const { role } = req.body;
+    // app.patch("/users/:id/role", verifyAdmin, async (req, res) => {
+    //   const userId = req.params.id;
+    //   const { role } = req.body;
 
-      if (!["user", "member", "admin"].includes(role)) {
-        return res.status(400).json({ message: "Invalid role" });
-      }
+    //   if (!["user", "member", "admin"].includes(role)) {
+    //     return res.status(400).json({ message: "Invalid role" });
+    //   }
 
+    //   try {
+    //     const result = await usersCollection.updateOne(
+    //       { _id: new ObjectId(userId) },
+    //       { $set: { role } }
+    //     );
+
+    //     if (result.matchedCount === 0) {
+    //       return res.status(404).json({ message: "User not found" });
+    //     }
+
+    //     res.json({ success: true, message: "Role updated successfully" });
+    //   } catch (err) {
+    //     console.error(err);
+    //     res.status(500).json({ message: "Server error" });
+    //   }
+    // });
+
+    // GET /users : role = user or member
+    // GET /users - role user/member গুলো নিয়ে আসবে
+    // app.get("/users", async (req, res) => {
+    //   try {
+    //     const users = await usersCollection
+    //       .find({ role: { $in: ["user", "member"] } })
+    //       .toArray();
+    //     res.send(users);
+    //   } catch (error) {
+    //     console.error(error);
+    //     res.status(500).send({ message: "Failed to fetch users" });
+    //   }
+    // });
+
+    // Members list আনবে (role === "member")
+    // ---- Manage Members: Get all members ----
+    app.get("/members", async (req, res) => {
       try {
-        const result = await usersCollection.updateOne(
-          { _id: new ObjectId(userId) },
-          { $set: { role } }
-        );
-
-        if (result.matchedCount === 0) {
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        res.json({ success: true, message: "Role updated successfully" });
-      } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Server error" });
-      }
-    });
-
-    // GET all users with role 'member' or 'user' (admin dashboard manage members)
-    app.get("/users", async (req, res) => {
-      try {
-        const users = await usersCollection
-          .find({ role: { $in: ["user", "member"] } })
+        const members = await usersCollection
+          .find({ role: "member" })
           .toArray();
-        res.send(users);
+        res.send(members);
       } catch (error) {
         console.error(error);
-        res.status(500).send({ message: "Failed to fetch users" });
+        res.status(500).send({ message: "Failed to fetch members" });
       }
     });
 
-    // PATCH update user role by admin (already diso, kintu without verifyAdmin middleware porer step e add korbo)
-    app.patch("/users/:id/role", async (req, res) => {
-      const userId = req.params.id;
-      const { role } = req.body;
+    // PATCH /users/:id/role - রোল আপডেট করবে
+    // app.patch("/users/:id/role", async (req, res) => {
+    //   const userId = req.params.id;
 
-      if (!["user", "member", "admin"].includes(role)) {
-        return res.status(400).json({ message: "Invalid role" });
+    //   // ObjectId validity চেক
+    //   if (!ObjectId.isValid(userId)) {
+    //     return res.status(400).json({ message: "Invalid user ID" });
+    //   }
+
+    //   const { role } = req.body;
+    //   if (!["user", "member", "admin"].includes(role)) {
+    //     return res.status(400).json({ message: "Invalid role" });
+    //   }
+
+    //   try {
+    //     const result = await usersCollection.updateOne(
+    //       { _id: new ObjectId(userId) }, // ObjectId তে convert করে query দিবে
+    //       { $set: { role } }
+    //     );
+
+    //     if (result.matchedCount === 0) {
+    //       return res.status(404).json({ message: "User not found" });
+    //     }
+
+    //     res.json({
+    //       success: true,
+    //       message: "Role updated successfully",
+    //       modifiedCount: result.modifiedCount,
+    //     });
+    //   } catch (error) {
+    //     console.error(error);
+    //     res.status(500).json({ message: "Server error" });
+    //   }
+    // });
+
+    // ---- Remove member (role -> user) ----
+    app.patch("/members/:id/remove", async (req, res) => {
+      const memberId = req.params.id;
+
+      if (!ObjectId.isValid(memberId)) {
+        return res.status(400).json({ message: "Invalid member ID" });
       }
 
       try {
         const result = await usersCollection.updateOne(
-          { _id: new ObjectId(userId) },
-          { $set: { role } }
+          { _id: new ObjectId(memberId), role: "member" },
+          { $set: { role: "user" } }
         );
 
         if (result.matchedCount === 0) {
-          return res.status(404).json({ message: "User not found" });
+          return res.status(404).json({
+            success: false,
+            message: "Member not found or already removed",
+          });
         }
 
-        res.json({ success: true, message: "Role updated successfully" });
-      } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Server error" });
-      }
-    });
-
-    // DELETE user by ID (remove member permission)
-    app.delete("/users/:id", async (req, res) => {
-      try {
-        const userId = req.params.id;
-        const result = await usersCollection.deleteOne({
-          _id: new ObjectId(userId),
-        });
-        if (result.deletedCount === 0) {
-          return res.status(404).json({ message: "User not found" });
-        }
-        res.json({ success: true, message: "User deleted successfully" });
+        res.json({ success: true, message: "Member removed successfully" });
       } catch (error) {
         console.error(error);
-        res.status(500).json({ message: "Failed to delete user" });
+        res.status(500).json({ message: "Failed to remove member" });
       }
     });
+
+    // app.delete("/users/:id", async (req, res) => {
+    //   const userId = req.params.id;
+
+    //   if (!ObjectId.isValid(userId)) {
+    //     return res.status(400).json({ message: "Invalid user ID" });
+    //   }
+
+    //   try {
+    //     const result = await usersCollection.deleteOne({
+    //       _id: new ObjectId(userId),
+    //     });
+
+    //     if (result.deletedCount === 0) {
+    //       return res.status(404).json({ message: "User not found" });
+    //     }
+
+    //     res.json({
+    //       success: true,
+    //       message: "User deleted successfully",
+    //       deletedCount: result.deletedCount,
+    //     });
+    //   } catch (error) {
+    //     console.error(error);
+    //     res.status(500).json({ message: "Failed to delete user" });
+    //   }
+    // });
 
     // 1. Create Payment Intent
     app.post("/create-payment-intent", async (req, res) => {
@@ -560,6 +627,11 @@ async function run() {
     app.get("/payments", verifyFBToken, async (req, res) => {
       try {
         const userEmail = req.query.email;
+        console.log("decodde", req.decoded);
+
+        if (req.decoded.email !== userEmail) {
+          return res.status(403).send({ message: "forbidden access" });
+        }
 
         if (!userEmail)
           return res.status(400).send({ message: "⚠️ Email is required" });
@@ -575,6 +647,71 @@ async function run() {
         res.status(500).send({ message: "Failed to fetch payments" });
       }
     });
+
+//     GET all pending agreement requests
+//    Pending agreement list
+// GET all pending agreements
+app.get("/agreement/pending", async (req, res) => {
+  try {
+    const pendingAgreements = await agreementsCollection
+      .find({ status: "pending" })
+      .toArray();
+
+    console.log("Pending agreements:", pendingAgreements);
+
+    return res.status(200).json(pendingAgreements);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+
+
+
+
+// PATCH accept
+app.patch("/agreements/:id/accept", async (req, res) => {
+  const id = req.params.id;
+  try {
+    const agreement = await agreementsCollection.findOne({ _id: new ObjectId(id) });
+    if (!agreement) return res.status(404).send({ message: "Agreement not found" });
+
+    // Change user role to member
+    await usersCollection.updateOne(
+      { email: agreement.userEmail },
+      { $set: { role: "member" } }
+    );
+
+    // Update status checked
+    await agreementsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: "checked", agreementDate: new Date() } }
+    );
+
+    res.send({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
+
+// PATCH reject
+app.patch("/agreements/:id/reject", async (req, res) => {
+  const id = req.params.id;
+  try {
+    await agreementsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: "checked" } }
+    );
+    res.send({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
+
+   
 
     // Ping test
     await client.db("admin").command({ ping: 1 });
