@@ -219,21 +219,21 @@ async function run() {
     });
 
     // GET all agreements (admin)
-    // app.get("/agreements", async (req, res) => {
-    //   try {
-    //     const agreements = await agreementsCollection.find().toArray();
-    //     res.send(agreements);
-    //   } catch (error) {
-    //     console.error(error);
-    //     res.status(500).send({ error: "Failed to fetch agreements" });
-    //   }
-    // });
+    app.get("/agreements", async (req, res) => {
+      try {
+        const agreements = await agreementsCollection.find().toArray();
+        res.send(agreements);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Failed to fetch agreements" });
+      }
+    });
 
-    // app.get("/agreements/user/:email", async (req, res) => {
-    //   const email = req.params.email;
-    //   const result = await agreementCollection.findOne({ userEmail: email });
-    //   res.send(result);
-    // });
+    app.get("/agreements/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await agreementsCollection.findOne({ userEmail: email });
+      res.send(result);
+    });
 
     // // PATCH accept agreement and update user role
     // app.patch("/agreements/:id/accept", async (req, res) => {
@@ -710,6 +710,31 @@ app.patch("/agreements/:id/reject", async (req, res) => {
     res.status(500).send({ message: "Server error" });
   }
 });
+
+app.get('/users/role/:email', async (req, res) => {
+  try {
+    const email = req.params.email;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email parameter is required" });
+    }
+
+    // Find user by email
+    const user = await usersCollection.findOne({ email: email });
+
+    if (!user) {
+      // If user not found, respond with a default role or 404
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Respond with user role
+    return res.status(200).json({ role: user.role || "user" });
+  } catch (error) {
+    console.error("Error fetching user role:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 
    
 
