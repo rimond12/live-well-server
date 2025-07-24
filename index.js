@@ -68,6 +68,15 @@ async function run() {
         return res.status(403).send({ message: "forbidden access" });
       }
     };
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
 
     app.post("/users", async (req, res) => {
       const email = req.body.email;
@@ -84,7 +93,7 @@ async function run() {
     });
 
     // GET apartments with pagination and rent filtering
-    app.get("/apartments", async (req, res) => {
+    app.get("/apartments", verifyFBToken, async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 6;
@@ -111,7 +120,7 @@ async function run() {
     });
 
     // GET agreement by user email
-    app.get("/agreements/:email", async (req, res) => {
+    app.get("/agreements/:email", verifyFBToken, async (req, res) => {
       try {
         const email = req.params.email;
         const agreement = await agreementsCollection.findOne({
@@ -219,7 +228,7 @@ async function run() {
     });
 
     // GET all agreements (admin)
-    app.get("/agreements", async (req, res) => {
+    app.get("/agreements", verifyFBToken, async (req, res) => {
       try {
         const agreements = await agreementsCollection.find().toArray();
         res.send(agreements);
@@ -229,10 +238,47 @@ async function run() {
       }
     });
 
-    app.get("/agreements/user/:email", async (req, res) => {
+    app.get("/agreements/user/:email", verifyFBToken, async (req, res) => {
       const email = req.params.email;
-      const result = await agreementsCollection.findOne({ userEmail: email });
-      res.send(result);
+
+      try {
+        const agreement = await agreementsCollection.findOne({
+          userEmail: email,
+        });
+        const user = await usersCollection.findOne({ email: email });
+
+        if (!agreement) {
+          return res.status(404).send({ message: "No agreement found" });
+        }
+
+        // Merge role with agreement object
+        const response = {
+          ...agreement,
+          role: user?.role || "user",
+          displayName: user?.displayName || "",
+        };
+
+        res.send(response);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Internal server error" });
+      }
+    });
+
+    app.get("/agreement", verifyFBToken, async (req, res) => {
+      const email = req.query.email;
+      if (!email) return res.status(400).send({ message: "Email required" });
+
+      const agreement = await agreementsCollection.findOne({
+        userEmail: email,
+        status: "checked", // শুধু active agreement
+      });
+
+      if (!agreement) {
+        return res.status(404).send({ message: "No active agreement found" });
+      }
+
+      res.send(agreement);
     });
 
     // // PATCH accept agreement and update user role
@@ -313,7 +359,7 @@ async function run() {
       }
     });
 
-    app.get("/announcements", async (req, res) => {
+    app.get("/announcements", verifyFBToken, async (req, res) => {
       try {
         const announcements = await announcementsCollection
           .find()
@@ -326,7 +372,7 @@ async function run() {
     });
 
     // GET all coupons
-    app.get("/coupons", async (req, res) => {
+    app.get("/coupons", verifyFBToken, async (req, res) => {
       try {
         const coupons = await couponsCollection.find().toArray();
         res.send(coupons);
@@ -425,7 +471,7 @@ async function run() {
 
     // Members list আনবে (role === "member")
     // ---- Manage Members: Get all members ----
-    app.get("/members", async (req, res) => {
+    app.get("/members", verifyFBToken, async (req, res) => {
       try {
         const members = await usersCollection
           .find({ role: "member" })
@@ -648,95 +694,93 @@ async function run() {
       }
     });
 
-//     GET all pending agreement requests
-//    Pending agreement list
-// GET all pending agreements
-app.get("/agreement/pending", async (req, res) => {
-  try {
-    const pendingAgreements = await agreementsCollection
-      .find({ status: "pending" })
-      .toArray();
+    //     GET all pending agreement requests
+    //    Pending agreement list
+    // GET all pending agreements
+    app.get("/agreement/pending", verifyFBToken, async (req, res) => {
+      try {
+        const pendingAgreements = await agreementsCollection
+          .find({ status: "pending" })
+          .toArray();
 
-    console.log("Pending agreements:", pendingAgreements);
+        console.log("Pending agreements:", pendingAgreements);
 
-    return res.status(200).json(pendingAgreements);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: "Internal Server Error" });
-  }
-});
+        return res.status(200).json(pendingAgreements);
+      } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
 
+    // PATCH accept
+    app.patch("/agreements/:id/accept", async (req, res) => {
+      const id = req.params.id;
+      try {
+        const agreement = await agreementsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!agreement)
+          return res.status(404).send({ message: "Agreement not found" });
 
+        // Change user role to member
+        await usersCollection.updateOne(
+          { email: agreement.userEmail },
+          { $set: { role: "member" } }
+        );
 
+        // Update status checked
+        await agreementsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status: "checked", agreementDate: new Date() } }
+        );
 
+        res.send({ success: true });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
 
-// PATCH accept
-app.patch("/agreements/:id/accept", async (req, res) => {
-  const id = req.params.id;
-  try {
-    const agreement = await agreementsCollection.findOne({ _id: new ObjectId(id) });
-    if (!agreement) return res.status(404).send({ message: "Agreement not found" });
+    // PATCH reject
+    app.patch("/agreements/:id/reject", async (req, res) => {
+      const id = req.params.id;
+      try {
+        await agreementsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status: "checked" } }
+        );
+        res.send({ success: true });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
 
-    // Change user role to member
-    await usersCollection.updateOne(
-      { email: agreement.userEmail },
-      { $set: { role: "member" } }
-    );
+    app.get("/users/role/:email", verifyFBToken, async (req, res) => {
+      try {
+        const email = req.params.email;
 
-    // Update status checked
-    await agreementsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { status: "checked", agreementDate: new Date() } }
-    );
+        if (!email) {
+          return res
+            .status(400)
+            .json({ message: "Email parameter is required" });
+        }
 
-    res.send({ success: true });
-  } catch (error) {
-    console.error(error);
-    res.status(500).send({ message: "Server error" });
-  }
-});
+        // Find user by email
+        const user = await usersCollection.findOne({ email: email });
 
-// PATCH reject
-app.patch("/agreements/:id/reject", async (req, res) => {
-  const id = req.params.id;
-  try {
-    await agreementsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { status: "checked" } }
-    );
-    res.send({ success: true });
-  } catch (error) {
-    console.error(error);
-    res.status(500).send({ message: "Server error" });
-  }
-});
+        if (!user) {
+          // If user not found, respond with a default role or 404
+          return res.status(404).json({ message: "User not found" });
+        }
 
-app.get('/users/role/:email', async (req, res) => {
-  try {
-    const email = req.params.email;
-
-    if (!email) {
-      return res.status(400).json({ message: "Email parameter is required" });
-    }
-
-    // Find user by email
-    const user = await usersCollection.findOne({ email: email });
-
-    if (!user) {
-      // If user not found, respond with a default role or 404
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    // Respond with user role
-    return res.status(200).json({ role: user.role || "user" });
-  } catch (error) {
-    console.error("Error fetching user role:", error);
-    return res.status(500).json({ message: "Internal server error" });
-  }
-});
-
-
-   
+        // Respond with user role
+        return res.status(200).json({ role: user.role || "user" });
+      } catch (error) {
+        console.error("Error fetching user role:", error);
+        return res.status(500).json({ message: "Internal server error" });
+      }
+    });
 
     // Ping test
     await client.db("admin").command({ ping: 1 });
