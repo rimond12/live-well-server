@@ -359,7 +359,7 @@ async function run() {
       }
     });
 
-    app.get("/announcements", verifyFBToken, async (req, res) => {
+    app.get("/announcements", async (req, res) => {
       try {
         const announcements = await announcementsCollection
           .find()
