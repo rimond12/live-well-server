@@ -228,7 +228,7 @@ async function run() {
     });
 
     // GET all agreements (admin)
-    app.get("/agreements", verifyFBToken, async (req, res) => {
+    app.get("/agreements", verifyFBToken, verifyAdmin, async (req, res) => {
       try {
         const agreements = await agreementsCollection.find().toArray();
         res.send(agreements);
@@ -372,13 +372,24 @@ async function run() {
     });
 
     // GET all coupons
-    app.get("/coupons", verifyFBToken, async (req, res) => {
+    app.get("/coupons", verifyFBToken, verifyAdmin, async (req, res) => {
       try {
         const coupons = await couponsCollection.find().toArray();
         res.send(coupons);
       } catch (error) {
         console.error(error);
         res.status(500).send({ error: "Failed to fetch coupons" });
+      }
+    });
+
+    // Public coupons endpoint
+    app.get("/coupon", async (req, res) => {
+      try {
+        const coupons = await couponsCollection.find().toArray();
+        res.send(coupons);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Internal server error" });
       }
     });
 
@@ -471,7 +482,7 @@ async function run() {
 
     // Members list আনবে (role === "member")
     // ---- Manage Members: Get all members ----
-    app.get("/members", verifyFBToken, async (req, res) => {
+    app.get("/members", verifyFBToken, verifyAdmin, async (req, res) => {
       try {
         const members = await usersCollection
           .find({ role: "member" })
@@ -697,20 +708,25 @@ async function run() {
     //     GET all pending agreement requests
     //    Pending agreement list
     // GET all pending agreements
-    app.get("/agreement/pending", verifyFBToken, async (req, res) => {
-      try {
-        const pendingAgreements = await agreementsCollection
-          .find({ status: "pending" })
-          .toArray();
+    app.get(
+      "/agreement/pending",
+      verifyFBToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const pendingAgreements = await agreementsCollection
+            .find({ status: "pending" })
+            .toArray();
 
-        console.log("Pending agreements:", pendingAgreements);
+          console.log("Pending agreements:", pendingAgreements);
 
-        return res.status(200).json(pendingAgreements);
-      } catch (error) {
-        console.error(error);
-        return res.status(500).json({ message: "Internal Server Error" });
+          return res.status(200).json(pendingAgreements);
+        } catch (error) {
+          console.error(error);
+          return res.status(500).json({ message: "Internal Server Error" });
+        }
       }
-    });
+    );
 
     // PATCH accept
     app.patch("/agreements/:id/accept", async (req, res) => {
@@ -779,6 +795,58 @@ async function run() {
       } catch (error) {
         console.error("Error fetching user role:", error);
         return res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    app.get("/admin/stats", async (req, res) => {
+      try {
+        const adminEmail = req.query.email;
+        const admin = await usersCollection.findOne({
+          email: adminEmail,
+          role: "admin",
+        });
+        if (!admin) return res.status(404).send({ message: "Admin not found" });
+
+        const totalRooms = await apartmentsCollection.countDocuments();
+
+        // distinct alternative
+        const bookedAgreements = await agreementsCollection
+          .find({}, { projection: { apartmentId: 1 } })
+          .toArray();
+        const bookedApartmentIds = [
+          ...new Set(bookedAgreements.map((a) => a.apartmentId)),
+        ];
+
+        const unavailableRooms = bookedApartmentIds.length;
+        const availableRooms = totalRooms - unavailableRooms;
+
+        const totalUsers = await usersCollection.countDocuments();
+        const totalMembers = await usersCollection.countDocuments({
+          role: "member",
+        });
+
+        const availablePercentage = (
+          (availableRooms / totalRooms) *
+          100
+        ).toFixed(2);
+        const unavailablePercentage = (
+          (unavailableRooms / totalRooms) *
+          100
+        ).toFixed(2);
+
+        res.send({
+          adminName: admin.displayName || "Admin",
+          adminEmail: admin.email,
+          adminImage: admin.photoURL || "https://i.ibb.co/example/admin.jpg",
+          totalRooms,
+          availablePercentage,
+          unavailablePercentage,
+          totalUsers,
+          totalMembers,
+        });
+      } catch (error) {
+        console.error("Error in /admin/stats:", error);
+        res.status(500).send({ message: "Internal server error" });
       }
     });
 
