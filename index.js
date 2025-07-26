@@ -7,10 +7,6 @@ dotenv.config();
 
 const stripe = require("stripe")(process.env.PAYMENT_GATEWAY_KEY);
 
-// const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
-//   "utf8"
-// );
-// const serviceAccount = JSON.parse(decoded);
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -35,7 +31,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
     const db = client.db("liveWellDB");
 
@@ -171,27 +167,6 @@ async function run() {
       }
     });
 
-    // GET payments by user email (from query param)
-    // app.get("/payments", async (req, res) => {
-    //   try {
-    //     const userEmail = req.query.email;
-    //     if (!userEmail)
-    //       return res.status(400).send({ message: "Email is required" });
-
-    //     console.log("Requested payment for:", userEmail);
-
-    //     const payments = await paymentsCollection
-    //       .find({ memberEmail: userEmail }) // <-- ✅ Correct field name
-    //       .toArray();
-
-    //     console.log("Found payments:", payments.length);
-    //     res.send(payments);
-    //   } catch (error) {
-    //     console.error(error);
-    //     res.status(500).send({ message: "Failed to fetch payments" });
-    //   }
-    // });
-
     // POST validate coupon
     app.post("/validate-coupon", async (req, res) => {
       try {
@@ -271,7 +246,7 @@ async function run() {
 
       const agreement = await agreementsCollection.findOne({
         userEmail: email,
-        status: "checked", // শুধু active agreement
+        status: "checked",
       });
 
       if (!agreement) {
@@ -280,55 +255,6 @@ async function run() {
 
       res.send(agreement);
     });
-
-    // // PATCH accept agreement and update user role
-    // app.patch("/agreements/:id/accept", async (req, res) => {
-    //   const id = req.params.id;
-    //   try {
-    //     const agreement = await agreementsCollection.findOne({
-    //       _id: new ObjectId(id),
-    //     });
-    //     if (!agreement)
-    //       return res.status(404).send({ message: "Agreement not found" });
-
-    //     await agreementsCollection.updateOne(
-    //       { _id: new ObjectId(id) },
-    //       { $set: { status: "checked" } }
-    //     );
-
-    //     await usersCollection.updateOne(
-    //       { email: agreement.userEmail },
-    //       { $set: { role: "member" } }
-    //     );
-
-    //     res.send({ message: "Agreement accepted and user role updated" });
-    //   } catch (error) {
-    //     console.error(error);
-    //     res.status(500).send({ message: "Failed to accept agreement", error });
-    //   }
-    // });
-
-    // // PATCH reject agreement (update status only)
-    // app.patch("/agreements/:id/reject", async (req, res) => {
-    //   const id = req.params.id;
-    //   try {
-    //     const agreement = await agreementsCollection.findOne({
-    //       _id: new ObjectId(id),
-    //     });
-    //     if (!agreement)
-    //       return res.status(404).send({ message: "Agreement not found" });
-
-    //     await agreementsCollection.updateOne(
-    //       { _id: new ObjectId(id) },
-    //       { $set: { status: "checked" } }
-    //     );
-
-    //     res.send({ message: "Agreement rejected" });
-    //   } catch (error) {
-    //     console.error(error);
-    //     res.status(500).send({ message: "Failed to reject agreement", error });
-    //   }
-    // });
 
     // POST announcement
     app.post("/announcements", async (req, res) => {
@@ -407,8 +333,8 @@ async function run() {
 
       const result = await couponsCollection.insertOne({
         code,
-        discount: discountPercentage, // Store as 'discount'
-        active: active !== false, // default true
+        discount: discountPercentage,
+        active: active !== false,
       });
 
       res.status(201).json(result);
@@ -428,59 +354,6 @@ async function run() {
       }
     });
 
-    // Middleware to verify admin role (example)
-    // const verifyAdmin = async (req, res, next) => {
-    //   // assume you have user info in req.user (from auth middleware)
-    //   const userEmail = req.user.email;
-
-    //   const user = await usersCollection.findOne({ email: userEmail });
-    //   if (user?.role !== "admin") {
-    //     return res.status(403).json({ message: "Forbidden: Admins only" });
-    //   }
-    //   next();
-    // };
-
-    // PATCH /users/:id/role to update user role (admin only)
-    // app.patch("/users/:id/role", verifyAdmin, async (req, res) => {
-    //   const userId = req.params.id;
-    //   const { role } = req.body;
-
-    //   if (!["user", "member", "admin"].includes(role)) {
-    //     return res.status(400).json({ message: "Invalid role" });
-    //   }
-
-    //   try {
-    //     const result = await usersCollection.updateOne(
-    //       { _id: new ObjectId(userId) },
-    //       { $set: { role } }
-    //     );
-
-    //     if (result.matchedCount === 0) {
-    //       return res.status(404).json({ message: "User not found" });
-    //     }
-
-    //     res.json({ success: true, message: "Role updated successfully" });
-    //   } catch (err) {
-    //     console.error(err);
-    //     res.status(500).json({ message: "Server error" });
-    //   }
-    // });
-
-    // GET /users : role = user or member
-    // GET /users - role user/member গুলো নিয়ে আসবে
-    // app.get("/users", async (req, res) => {
-    //   try {
-    //     const users = await usersCollection
-    //       .find({ role: { $in: ["user", "member"] } })
-    //       .toArray();
-    //     res.send(users);
-    //   } catch (error) {
-    //     console.error(error);
-    //     res.status(500).send({ message: "Failed to fetch users" });
-    //   }
-    // });
-
-    // Members list আনবে (role === "member")
     // ---- Manage Members: Get all members ----
     app.get("/members", verifyFBToken, verifyAdmin, async (req, res) => {
       try {
@@ -493,41 +366,6 @@ async function run() {
         res.status(500).send({ message: "Failed to fetch members" });
       }
     });
-
-    // PATCH /users/:id/role - রোল আপডেট করবে
-    // app.patch("/users/:id/role", async (req, res) => {
-    //   const userId = req.params.id;
-
-    //   // ObjectId validity চেক
-    //   if (!ObjectId.isValid(userId)) {
-    //     return res.status(400).json({ message: "Invalid user ID" });
-    //   }
-
-    //   const { role } = req.body;
-    //   if (!["user", "member", "admin"].includes(role)) {
-    //     return res.status(400).json({ message: "Invalid role" });
-    //   }
-
-    //   try {
-    //     const result = await usersCollection.updateOne(
-    //       { _id: new ObjectId(userId) }, // ObjectId তে convert করে query দিবে
-    //       { $set: { role } }
-    //     );
-
-    //     if (result.matchedCount === 0) {
-    //       return res.status(404).json({ message: "User not found" });
-    //     }
-
-    //     res.json({
-    //       success: true,
-    //       message: "Role updated successfully",
-    //       modifiedCount: result.modifiedCount,
-    //     });
-    //   } catch (error) {
-    //     console.error(error);
-    //     res.status(500).json({ message: "Server error" });
-    //   }
-    // });
 
     // ---- Remove member (role -> user) ----
     app.patch("/members/:id/remove", async (req, res) => {
@@ -557,33 +395,6 @@ async function run() {
       }
     });
 
-    // app.delete("/users/:id", async (req, res) => {
-    //   const userId = req.params.id;
-
-    //   if (!ObjectId.isValid(userId)) {
-    //     return res.status(400).json({ message: "Invalid user ID" });
-    //   }
-
-    //   try {
-    //     const result = await usersCollection.deleteOne({
-    //       _id: new ObjectId(userId),
-    //     });
-
-    //     if (result.deletedCount === 0) {
-    //       return res.status(404).json({ message: "User not found" });
-    //     }
-
-    //     res.json({
-    //       success: true,
-    //       message: "User deleted successfully",
-    //       deletedCount: result.deletedCount,
-    //     });
-    //   } catch (error) {
-    //     console.error(error);
-    //     res.status(500).json({ message: "Failed to delete user" });
-    //   }
-    // });
-
     // 1. Create Payment Intent
     app.post("/create-payment-intent", async (req, res) => {
       try {
@@ -607,9 +418,6 @@ async function run() {
       }
     });
 
-    // 2. Validate Coupon
-    // assuming you already have express app and body-parser or express.json() middleware set up
-
     // POST to verify coupon
     app.post("/verify-coupon", async (req, res) => {
       const { code, rent } = req.body;
@@ -632,7 +440,7 @@ async function run() {
           });
         }
 
-        // 🔄 Use 'discount' instead of 'discountPercentage'
+        //  Use 'discount' instead of 'discountPercentage'
         const discountAmount = (rent * coupon.discount) / 100;
         const discountedAmount = rent - discountAmount;
 
@@ -705,8 +513,6 @@ async function run() {
       }
     });
 
-    //     GET all pending agreement requests
-    //    Pending agreement list
     // GET all pending agreements
     app.get(
       "/agreement/pending",
@@ -737,8 +543,6 @@ async function run() {
         });
         if (!agreement)
           return res.status(404).send({ message: "Agreement not found" });
-
-        // Change user role to member
         await usersCollection.updateOne(
           { email: agreement.userEmail },
           { $set: { role: "member" } }
@@ -782,15 +586,12 @@ async function run() {
             .json({ message: "Email parameter is required" });
         }
 
-        // Find user by email
         const user = await usersCollection.findOne({ email: email });
 
         if (!user) {
-          // If user not found, respond with a default role or 404
           return res.status(404).json({ message: "User not found" });
         }
 
-        // Respond with user role
         return res.status(200).json({ role: user.role || "user" });
       } catch (error) {
         console.error("Error fetching user role:", error);
@@ -851,10 +652,10 @@ async function run() {
     });
 
     // Ping test
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } catch (err) {
     console.error(err);
   }
