@@ -13,7 +13,11 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-const serviceAccount = require("./firebase-admin-key.json");
+const decodedKey = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+  "utf8"
+);
+
+const serviceAccount = JSON.parse(decodedKey);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
@@ -45,8 +49,6 @@ async function run() {
     // custom middleware
 
     verifyFBToken = async (req, res, next) => {
-      console.log("header in middlware", req.headers);
-
       const authHeader = req.headers.authorization;
       if (!authHeader) {
         return res.status(401).send({ message: "unauthorized access" });
@@ -69,6 +71,15 @@ async function run() {
       const query = { email };
       const user = await usersCollection.findOne(query);
       if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+    const verifyMember = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      if (!user || user.role !== "member") {
         return res.status(403).send({ message: "forbidden access" });
       }
       next();
@@ -110,7 +121,6 @@ async function run() {
 
         res.send({ apartments, total });
       } catch (err) {
-        console.error("Apartment fetch error:", err.message);
         res.status(500).send({ error: "Failed to fetch apartments." });
       }
     });
@@ -124,7 +134,6 @@ async function run() {
         });
         res.send(agreement);
       } catch (error) {
-        console.error(error);
         res.status(500).send({ error: "Failed to fetch agreement." });
       }
     });
@@ -148,7 +157,6 @@ async function run() {
         const result = await agreementsCollection.insertOne(agreement);
         res.send(result);
       } catch (error) {
-        console.error(error);
         res.status(500).send({ error: "Failed to create agreement." });
       }
     });
@@ -162,7 +170,6 @@ async function run() {
           .status(201)
           .send({ success: true, message: "Payment recorded", data: result });
       } catch (error) {
-        console.error(error);
         res.status(500).send({ success: false, message: "Payment failed" });
       }
     });
@@ -191,11 +198,10 @@ async function run() {
 
         res.send({
           valid: true,
-          discountPercentage: coupon.discount, // assuming your field is 'discount'
+          discountPercentage: coupon.discount, 
           description: coupon.description || "",
         });
       } catch (error) {
-        console.error(error);
         res
           .status(500)
           .send({ valid: false, message: "Coupon validation failed" });
@@ -208,7 +214,6 @@ async function run() {
         const agreements = await agreementsCollection.find().toArray();
         res.send(agreements);
       } catch (error) {
-        console.error(error);
         res.status(500).send({ error: "Failed to fetch agreements" });
       }
     });
@@ -235,7 +240,6 @@ async function run() {
 
         res.send(response);
       } catch (error) {
-        console.error(error);
         res.status(500).send({ message: "Internal server error" });
       }
     });
@@ -280,7 +284,6 @@ async function run() {
           res.status(500).send({ message: "Failed to post announcement" });
         }
       } catch (err) {
-        console.error(err);
         res.status(500).send({ message: "Server error" });
       }
     });
@@ -303,7 +306,6 @@ async function run() {
         const coupons = await couponsCollection.find().toArray();
         res.send(coupons);
       } catch (error) {
-        console.error(error);
         res.status(500).send({ error: "Failed to fetch coupons" });
       }
     });
@@ -314,7 +316,6 @@ async function run() {
         const coupons = await couponsCollection.find().toArray();
         res.send(coupons);
       } catch (error) {
-        console.error(error);
         res.status(500).send({ message: "Internal server error" });
       }
     });
@@ -349,7 +350,6 @@ async function run() {
         });
         res.send(result);
       } catch (error) {
-        console.error(error);
         res.status(500).send({ error: "Failed to delete coupon" });
       }
     });
@@ -362,7 +362,6 @@ async function run() {
           .toArray();
         res.send(members);
       } catch (error) {
-        console.error(error);
         res.status(500).send({ message: "Failed to fetch members" });
       }
     });
@@ -390,7 +389,6 @@ async function run() {
 
         res.json({ success: true, message: "Member removed successfully" });
       } catch (error) {
-        console.error(error);
         res.status(500).json({ message: "Failed to remove member" });
       }
     });
@@ -399,21 +397,18 @@ async function run() {
     app.post("/create-payment-intent", async (req, res) => {
       try {
         const { amount } = req.body;
-        console.log("Received amount:", amount); // debug
-
         if (!amount || typeof amount !== "number" || amount <= 0) {
           return res.status(400).json({ error: "Invalid amount" });
         }
 
         const paymentIntent = await stripe.paymentIntents.create({
-          amount: Math.round(amount * 100), // amount in cents
+          amount: Math.round(amount * 100),
           currency: "usd",
           payment_method_types: ["card"],
         });
 
         res.json({ clientSecret: paymentIntent.client_secret });
       } catch (error) {
-        console.error("Error creating payment intent:", error);
         res.status(500).json({ error: "Internal Server Error" });
       }
     });
@@ -450,7 +445,6 @@ async function run() {
           discountedAmount,
         });
       } catch (err) {
-        console.error("verify-coupon err:", err);
         return res.status(500).json({ valid: false, message: "Server error" });
       }
     });
@@ -481,7 +475,6 @@ async function run() {
           insertedId: result.insertedId,
         });
       } catch (error) {
-        console.error("Error recording payment:", error);
         res
           .status(500)
           .send({ success: false, message: "Payment recording failed" });
@@ -489,10 +482,9 @@ async function run() {
     });
 
     // 4. Get User Payments
-    app.get("/payments", verifyFBToken, async (req, res) => {
+    app.get("/payments", verifyFBToken, verifyMember, async (req, res) => {
       try {
         const userEmail = req.query.email;
-        console.log("decodde", req.decoded);
 
         if (req.decoded.email !== userEmail) {
           return res.status(403).send({ message: "forbidden access" });
@@ -502,13 +494,12 @@ async function run() {
           return res.status(400).send({ message: "⚠️ Email is required" });
 
         const payments = await paymentsCollection
-          .find({ email: userEmail }) // অথবা .find({ memberEmail: userEmail }) যদি ফিল্ড নাম memberEmail হয়
+          .find({ email: userEmail })
           .sort({ date: -1 })
           .toArray();
 
         res.send(payments);
       } catch (error) {
-        console.error("❌ Failed to fetch payments:", error);
         res.status(500).send({ message: "Failed to fetch payments" });
       }
     });
@@ -524,11 +515,8 @@ async function run() {
             .find({ status: "pending" })
             .toArray();
 
-          console.log("Pending agreements:", pendingAgreements);
-
           return res.status(200).json(pendingAgreements);
         } catch (error) {
-          console.error(error);
           return res.status(500).json({ message: "Internal Server Error" });
         }
       }
@@ -556,7 +544,6 @@ async function run() {
 
         res.send({ success: true });
       } catch (error) {
-        console.error(error);
         res.status(500).send({ message: "Server error" });
       }
     });
@@ -571,7 +558,6 @@ async function run() {
         );
         res.send({ success: true });
       } catch (error) {
-        console.error(error);
         res.status(500).send({ message: "Server error" });
       }
     });
@@ -594,7 +580,6 @@ async function run() {
 
         return res.status(200).json({ role: user.role || "user" });
       } catch (error) {
-        console.error("Error fetching user role:", error);
         return res.status(500).json({ message: "Internal server error" });
       }
     });
@@ -646,7 +631,6 @@ async function run() {
           totalMembers,
         });
       } catch (error) {
-        console.error("Error in /admin/stats:", error);
         res.status(500).send({ message: "Internal server error" });
       }
     });
