@@ -198,7 +198,7 @@ async function run() {
 
         res.send({
           valid: true,
-          discountPercentage: coupon.discount, 
+          discountPercentage: coupon.discount,
           description: coupon.description || "",
         });
       } catch (error) {
@@ -313,16 +313,20 @@ async function run() {
     // Public coupons endpoint
     app.get("/coupon", async (req, res) => {
       try {
-        const coupons = await couponsCollection.find().toArray();
+        // active = true filter
+        const coupons = await couponsCollection
+          .find({ active: true })
+          .toArray();
         res.send(coupons);
       } catch (error) {
+        console.error(error);
         res.status(500).send({ message: "Internal server error" });
       }
     });
 
     // POST new coupon
     app.post("/coupons", async (req, res) => {
-      const { code, discountPercentage, active } = req.body;
+      const { code, discountPercentage, description, active } = req.body;
 
       if (
         !code ||
@@ -334,11 +338,23 @@ async function run() {
 
       const result = await couponsCollection.insertOne({
         code,
+        description, // ekhon DB te save hobe
         discount: discountPercentage,
         active: active !== false,
       });
 
       res.status(201).json(result);
+    });
+
+    // Update coupon availability
+    app.patch("/coupons/:id", async (req, res) => {
+      const id = req.params.id;
+      const { active } = req.body;
+      const result = await couponsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { active } }
+      );
+      res.send(result);
     });
 
     // DELETE coupon by ID
@@ -594,8 +610,6 @@ async function run() {
         if (!admin) return res.status(404).send({ message: "Admin not found" });
 
         const totalRooms = await apartmentsCollection.countDocuments();
-
-        // distinct alternative
         const bookedAgreements = await agreementsCollection
           .find({}, { projection: { apartmentId: 1 } })
           .toArray();
