@@ -100,7 +100,7 @@ async function run() {
     });
 
     // GET apartments with pagination and rent filtering
-    app.get("/apartments", verifyFBToken, async (req, res) => {
+    app.get("/apartments", async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 6;
@@ -149,7 +149,7 @@ async function run() {
 
         if (existing) {
           return res
-            .status(400)
+            .status(409)
             .send({ message: "User already has an agreement." });
         }
 
@@ -338,7 +338,7 @@ async function run() {
 
       const result = await couponsCollection.insertOne({
         code,
-        description, // ekhon DB te save hobe
+        description, 
         discount: discountPercentage,
         active: active !== false,
       });
