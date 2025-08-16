@@ -338,7 +338,7 @@ async function run() {
 
       const result = await couponsCollection.insertOne({
         code,
-        description, 
+        description,
         discount: discountPercentage,
         active: active !== false,
       });
@@ -648,6 +648,18 @@ async function run() {
         res.status(500).send({ message: "Internal server error" });
       }
     });
+
+    // GET featured apartments
+    app.get("/apartments/featured", async (req, res) => {
+      try {
+        const featured = await apartmentsCollection.find({ isFeatured: true }).toArray();
+        res.send(featured);
+      } catch (err) {
+        res.status(500).send({ message: "Failed to fetch featured apartments" });
+      }
+    });
+
+
 
     // Ping test
     // await client.db("admin").command({ ping: 1 });
