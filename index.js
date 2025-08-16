@@ -648,6 +648,7 @@ async function run() {
         res.status(500).send({ message: "Internal server error" });
       }
     });
+    
 
     // GET featured apartments
     app.get("/apartments/featured", async (req, res) => {
